@@ -24,8 +24,6 @@ No API can prevent a client from sending sensitive data on the first request.
 > * Not listen on HTTP.
 > * Close the connection with status code 400 (Bad Request) and not serve the request.
 
-<a name="require"></a>
-
 ## Require HTTPS
 
 ::: moniker range=">= aspnetcore-2.1"
@@ -33,7 +31,7 @@ No API can prevent a client from sending sensitive data on the first request.
 We recommend all production ASP.NET Core web apps call:
 
 * The HTTPS Redirection Middleware ([UseHttpsRedirection](/dotnet/api/microsoft.aspnetcore.builder.httpspolicybuilderextensions.usehttpsredirection)) to redirect all HTTP requests to HTTPS.
-* [UseHsts](#hsts), HTTP Strict Transport Security Protocol (HSTS).
+* [UseHsts](#http-strict-transport-security-protocol-hsts), HTTP Strict Transport Security Protocol (HSTS).
 
 ### UseHttpsRedirection
 
@@ -46,26 +44,55 @@ The preceding highlighted code:
 * Uses the default [HttpsRedirectionOptions.RedirectStatusCode](/dotnet/api/microsoft.aspnetcore.httpspolicy.httpsredirectionoptions.redirectstatuscode) ([Status307TemporaryRedirect](/dotnet/api/microsoft.aspnetcore.http.statuscodes.status307temporaryredirect)).
 * Uses the default [HttpsRedirectionOptions.HttpsPort](/dotnet/api/microsoft.aspnetcore.httpspolicy.httpsredirectionoptions.httpsport) (null) unless overridden by the `ASPNETCORE_HTTPS_PORT` environment variable or [IServerAddressesFeature](/dotnet/api/microsoft.aspnetcore.hosting.server.features.iserveraddressesfeature).
 
-We recommend using temporary redirects rather than permanent redirects, as link caching can cause unstable behavior in development environments. We recommend using [HSTS](#hsts) to signal to clients that only secure resource requests should be sent to the app (only in production).
+We recommend using temporary redirects rather than permanent redirects, as link caching can cause unstable behavior in development environments. We recommend using [HSTS](#http-strict-transport-security-protocol-hsts) to signal to clients that only secure resource requests should be sent to the app (only in production).
 
-> [!WARNING]
-> A port must be available for the middleware to redirect to HTTPS. If no port is available, redirection to HTTPS doesn't occur. The HTTPS port can be specified using any of the following approaches:
->
-> * Set `HttpsRedirectionOptions.HttpsPort`.
-> * Set the `ASPNETCORE_HTTPS_PORT` environment variable.
-> * In development, set an HTTPS URL in *launchsettings.json*.
-> * Configure an HTTPS URL endpoint for [Kestrel](xref:fundamentals/servers/kestrel) or [HTTP.sys](xref:fundamentals/servers/httpsys).
->
-> When Kestrel or HTTP.sys is used as a public-facing edge server, Kestrel or HTTP.sys must be configured to listen on both:
->
-> * The secure port where the client is redirected (typically, 443 in production and 5001 in development).
-> * The insecure port (typically, 80 in production and 5000 in development).
->
-> The insecure port must be accessible by the client in order for the app to receive an insecure request and redirect it to the secure port.
->
-> Any firewall between the client and server must also have the ports open for traffic.
->
-> For more information, see [Kestrel endpoint configuration](xref:fundamentals/servers/kestrel#endpoint-configuration) or <xref:fundamentals/servers/httpsys>.
+### Port configuration
+
+A port must be available for the middleware to redirect an insecure request to HTTPS. If no port is available:
+
+* Redirection to HTTPS doesn't occur.
+* The middleware logs the warning "Failed to determine the https port for redirect."
+
+Specify the HTTPS port using any of the following approaches:
+
+* Set [HttpsRedirectionOptions.HttpsPort](#options).
+* Set the `ASPNETCORE_HTTPS_PORT` environment variable or [https_port Web Host configuration setting](xref:fundamentals/host/web-host#https-port):
+
+  **Key**: https_port  
+  **Type**: *string*  
+  **Default**: A default value isn't set.  
+  **Set using**: `UseSetting`  
+  **Environment variable**: `<PREFIX_>HTTPS_PORT` (The prefix is `ASPNETCORE_` when using the [Web Host](xref:fundamentals/host/web-host).)
+
+  ```csharp
+  WebHost.CreateDefaultBuilder(args)
+      .UseSetting("https_port", "8080")
+  ```
+* Indicate a port with the secure scheme using the `ASPNETCORE_URLS` environment variable. The environment variable configures the server. The middleware indirectly discovers the HTTPS port via `IServerAddressesFeature`. (Does **not** work in reverse proxy deployments.)
+* In development, set an HTTPS URL in *launchsettings.json*. Enable HTTPS when IIS Express is used.
+* Configure an HTTPS URL endpoint for a public-facing edge deployment of [Kestrel](xref:fundamentals/servers/kestrel) or [HTTP.sys](xref:fundamentals/servers/httpsys). Only **one HTTPS port** is used by the app. The middleware discovers the port via [IServerAddressesFeature](/dotnet/api/microsoft.aspnetcore.hosting.server.features.iserveraddressesfeature).
+
+> [!NOTE]
+> When an app is run behind a reverse proxy (for example, IIS, IIS Express), `IServerAddressesFeature` isn't available. The port must be manually configured. When the port isn't set, requests aren't redirected.
+
+When Kestrel or HTTP.sys is used as a public-facing edge server, Kestrel or HTTP.sys must be configured to listen on both:
+
+* The secure port where the client is redirected (typically, 443 in production and 5001 in development).
+* The insecure port (typically, 80 in production and 5000 in development).
+
+The insecure port must be accessible by the client in order for the app to receive an insecure request and redirect it to the secure port.
+
+For more information, see [Kestrel endpoint configuration](xref:fundamentals/servers/kestrel#endpoint-configuration) or <xref:fundamentals/servers/httpsys>.
+
+### Deployment scenarios
+
+Any firewall between the client and server must also have the ports open for traffic.
+
+If requests are forwarded in a reverse proxy configuration, use [Forwarded Headers Middleware](xref:host-and-deploy/proxy-load-balancer) before calling HTTPS Redirection Middleware. The middleware updates the `Request.Scheme`, using the `X-Forwarded-Proto` header. The middleware permits redirect URIs and other security policies to work correctly. When Forwarded Headers Middleware isn't used, the backend app might not receive the correct scheme and end up in a redirect loop. A common end user error message is that too many redirects have occurred.
+
+When deploying to Azure App Service, follow the guidance in [Tutorial: Bind an existing custom SSL certificate to Azure Web Apps](/azure/app-service/app-service-web-tutorial-custom-ssl).
+
+### Options
 
 The following highlighted code calls [AddHttpsRedirection](/dotnet/api/microsoft.aspnetcore.builder.httpsredirectionservicesextensions.addhttpsredirection) to configure middleware options:
 
@@ -77,42 +104,6 @@ The preceding highlighted code:
 
 * Sets [HttpsRedirectionOptions.RedirectStatusCode](/dotnet/api/microsoft.aspnetcore.httpspolicy.httpsredirectionoptions.redirectstatuscode) to [Status307TemporaryRedirect](/dotnet/api/microsoft.aspnetcore.http.statuscodes.status307temporaryredirect), which is the default value. Use the fields of the [StatusCodes](/dotnet/api/microsoft.aspnetcore.http.statuscodes) class for assignments to `RedirectStatusCode`.
 * Sets the HTTPS port to 5001. The default value is 443.
-
-The following mechanisms set the port automatically:
-
-* The middleware can discover the ports via [IServerAddressesFeature](/dotnet/api/microsoft.aspnetcore.hosting.server.features.iserveraddressesfeature) when the following conditions apply:
-
-  * Kestrel or HTTP.sys is used directly with HTTPS endpoints (also applies to running the app with Visual Studio Code's debugger).
-  * Only **one HTTPS port** is used by the app.
-
-* Visual Studio is used:
-
-  * IIS Express has HTTPS enabled.
-  * *launchSettings.json* sets the `sslPort` for IIS Express.
-
-> [!NOTE]
-> When an app is run behind a reverse proxy (for example, IIS, IIS Express), `IServerAddressesFeature` isn't available. The port must be manually configured. When the port isn't set, requests aren't redirected.
-
-The port can be configured by setting the [https_port Web Host configuration setting](xref:fundamentals/host/web-host#https-port):
-
-**Key**: https_port  
-**Type**: *string*  
-**Default**: A default value isn't set.  
-**Set using**: `UseSetting`  
-**Environment variable**: `<PREFIX_>HTTPS_PORT` (The prefix is `ASPNETCORE_` when using the Web Host.)
-
-```csharp
-WebHost.CreateDefaultBuilder(args)
-    .UseSetting("https_port", "8080")
-```
-
-> [!NOTE]
-> The port can be configured indirectly by setting the URL with the `ASPNETCORE_URLS` environment variable. The environment variable configures the server, and then the middleware indirectly discovers the HTTPS port via `IServerAddressesFeature`.
-
-If no port is set:
-
-* Requests aren't redirected.
-* The middleware logs the warning "Failed to determine the https port for redirect."
 
 > [!NOTE]
 > An alternative to using HTTPS Redirection Middleware (`UseHttpsRedirection`) is to use URL Rewriting Middleware (`AddRedirectToHttps`). `AddRedirectToHttps` can also set the status code and port when the redirect is executed. For more information, see [URL Rewriting Middleware](xref:fundamentals/url-rewriting).
@@ -139,8 +130,6 @@ Requiring HTTPS globally (`options.Filters.Add(new RequireHttpsAttribute());`) i
 ::: moniker-end
 
 ::: moniker range=">= aspnetcore-2.1"
-
-<a name="hsts"></a>
 
 ## HTTP Strict Transport Security Protocol (HSTS)
 
@@ -184,11 +173,9 @@ The preceding example shows how to add additional hosts.
 
 ::: moniker range=">= aspnetcore-2.1"
 
-<a name="https"></a>
-
 ## Opt-out of HTTPS/HSTS on project creation
 
-In some backend service scenarios where connection security is handled at the public-facing edge of the network, configuring connection security at each node isn't required. Web apps generated from the templates in Visual Studio or from the [dotnet new](/dotnet/core/tools/dotnet-new) command enable [HTTPS redirection](#require) and [HSTS](#hsts). For deployments that don't require these scenarios, you can opt-out of HTTPS/HSTS when the app is created from the template.
+In some backend service scenarios where connection security is handled at the public-facing edge of the network, configuring connection security at each node isn't required. Web apps generated from the templates in Visual Studio or from the [dotnet new](/dotnet/core/tools/dotnet-new) command enable [HTTPS redirection](#require-https) and [HSTS](#http-strict-transport-security-protocol-hsts). For deployments that don't require these scenarios, you can opt-out of HTTPS/HSTS when the app is created from the template.
 
 To opt-out of HTTPS/HSTS:
 
@@ -220,4 +207,8 @@ See [this GitHub issue](https://github.com/aspnet/Docs/issues/6199).
 
 ## Additional information
 
+* <xref:host-and-deploy/proxy-load-balancer>
+* [Host ASP.NET Core on Linux with Apache: SSL configuration](xref:host-and-deploy/linux-apache#ssl-configuration)
+* [Host ASP.NET Core on Linux with Nginx: SSL configuration](xref:host-and-deploy/linux-nginx#configure-ssl)
+* [How to Set Up SSL on IIS](/iis/manage/configuring-security/how-to-set-up-ssl-on-iis)
 * [OWASP HSTS browser support](https://www.owasp.org/index.php/HTTP_Strict_Transport_Security_Cheat_Sheet#Browser_Support)
