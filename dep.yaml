@@ -1,0 +1,42 @@
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+apiVersion: apps/v1beta1 
+kind: Deployment
+metadata:
+  labels:
+    app: oarena.scaling-manager 
+  name: scaling-manager 
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: oarena.scaling-manager
+      name: scaling-manager 
+    spec:
+      containers:
+        - name: scaling-manager 
+          image: us.gcr.io/qwiklabs-gcp-04-609c794bb75b/scaling-manager
+          env:
+          - name: K8S_CLUSTER
+            value: "openarena-cluster"
+          - name: GKE_BASE_INSTANCE_NAME
+            value: "[BASE_INSTANCE_NAME]"
+          - name: GCP_ZONE
+            value: "us-east1-b"
+        - name: node-stopper 
+          image: us.gcr.io/qwiklabs-gcp-04-609c794bb75b/node-stopper
+          env:
+          - name: K8S_CLUSTER
+            value: "openarena-cluster"
+          - name: GKE_BASE_INSTANCE_NAME
+            value: "[BASE_INSTANCE_NAME]"
+          - name: GCP_ZONE
+            value: "us"
+        - name: kubectl-proxy
+          # Sidecar kubectl proxy container, defaults to port 8001
+          # https://github.com/kubernetes/examples/tree/master/staging/kubectl-container/
+          image: us-east1-b.gcr.io/qwiklabs-gcp-04-609c794bb75b/kubectl
+          args:
+            - "proxy"
